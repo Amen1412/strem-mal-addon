@@ -3,11 +3,12 @@ from flask_cors import CORS
 import requests
 from datetime import datetime
 import os
+import threading
 
 app = Flask(__name__)
 CORS(app)
 
-# Read TMDB API key from an environment variable
+# Read TMDB API key from environment variable
 TMDB_API_KEY = os.getenv('TMDB_API_KEY', 'YOUR TMDB API KEY')
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 
@@ -129,7 +130,6 @@ def catalog():
         print(f"[ERROR] Catalog error: {e}")
         return jsonify({"metas": []})
 
-import threading
 
 @app.route("/refresh")
 def refresh():
@@ -145,9 +145,12 @@ def refresh():
     return jsonify({"status": "refresh started in background"})
 
 
-# Fetch on startup
-fetch_and_cache_movies()
+# Start cache fetch in background thread (doesn't block app startup)
+def init_cache():
+    fetch_and_cache_movies()
+
+threading.Thread(target=init_cache, daemon=True).start()
+
 
 if __name__ == "__main__":
-    port = int(os.getenv('PORT', 7000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=7000)
