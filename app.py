@@ -3,13 +3,11 @@ from flask_cors import CORS
 import requests
 from datetime import datetime
 import os
-import threading
-import sys
 
 app = Flask(__name__)
 CORS(app)
 
-# Read TMDB API key from environment variable
+# Read TMDB API key from an environment variable
 TMDB_API_KEY = os.getenv('TMDB_API_KEY', 'YOUR TMDB API KEY')
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 
@@ -18,16 +16,13 @@ all_movies_cache = []
 
 def fetch_and_cache_movies():
     global all_movies_cache
-    print("[CACHE] Fetching Malayalam OTT movies...", flush=True)
-    sys.stdout.flush()
+    print("[CACHE] Fetching Malayalam OTT movies...")
 
     today = datetime.now().strftime("%Y-%m-%d")
     final_movies = []
 
     for page in range(1, 301):
-        print(f"[INFO] Checking page {page}", flush=True)
-        sys.stdout.flush()
-        
+        print(f"[INFO] Checking page {page}")
         params = {
             "api_key": TMDB_API_KEY,
             "with_original_language": "ml",
@@ -38,22 +33,9 @@ def fetch_and_cache_movies():
         }
 
         try:
-            print(f"[DEBUG] Making request for page {page}...", flush=True)
-            sys.stdout.flush()
-            
-            response = requests.get(f"{TMDB_BASE_URL}/discover/movie", params=params, timeout=15)
-            
-            print(f"[DEBUG] Response status: {response.status_code}", flush=True)
-            sys.stdout.flush()
-            
+            response = requests.get(f"{TMDB_BASE_URL}/discover/movie", params=params)
             results = response.json().get("results", [])
-            
-            print(f"[DEBUG] Page {page} got {len(results)} results", flush=True)
-            sys.stdout.flush()
-            
             if not results:
-                print(f"[DEBUG] No results on page {page}, breaking", flush=True)
-                sys.stdout.flush()
                 break
 
             for movie in results:
@@ -62,56 +44,25 @@ def fetch_and_cache_movies():
                 if not movie_id or not title:
                     continue
 
-                # Check OTT availability in India
-                try:
-                    providers_url = f"{TMDB_BASE_URL}/movie/{movie_id}/watch/providers"
-                    prov_response = requests.get(providers_url, params={"api_key": TMDB_API_KEY}, timeout=10)
-                    prov_data = prov_response.json()
+                # Check OTT availability
+                providers_url = f"{TMDB_BASE_URL}/movie/{movie_id}/watch/providers"
+                prov_response = requests.get(providers_url, params={"api_key": TMDB_API_KEY})
+                prov_data = prov_response.json()
 
-                    # Check if movie has providers in India
-                    if "results" not in prov_data or "IN" not in prov_data["results"]:
-                        print(f"[DEBUG] {title} has no providers in India, skipping", flush=True)
-                        sys.stdout.flush()
-                        continue
-
-                    india_providers = prov_data["results"]["IN"]
-                    
-                    # Check if ANY type of provider exists (flatrate, buy, rent)
-                    has_provider = "flatrate" in india_providers or "buy" in india_providers or "rent" in india_providers
-                    
-                    if not has_provider:
-                        print(f"[DEBUG] {title} has no OTT providers in India, skipping", flush=True)
-                        sys.stdout.flush()
-                        continue
-
-                    # Get IMDb ID
-                    try:
+                if "results" in prov_data and "IN" in prov_data["results"]:
+                    if "flatrate" in prov_data["results"]["IN"]:
+                        # Now get IMDb ID
                         ext_url = f"{TMDB_BASE_URL}/movie/{movie_id}/external_ids"
-                        ext_response = requests.get(ext_url, params={"api_key": TMDB_API_KEY}, timeout=10)
+                        ext_response = requests.get(ext_url, params={"api_key": TMDB_API_KEY})
                         ext_data = ext_response.json()
                         imdb_id = ext_data.get("imdb_id")
 
                         if imdb_id and imdb_id.startswith("tt"):
                             movie["imdb_id"] = imdb_id
                             final_movies.append(movie)
-                            print(f"[DEBUG] Added: {title} ({imdb_id}) - Providers: {list(india_providers.keys())}", flush=True)
-                            sys.stdout.flush()
-                    except Exception as e:
-                        print(f"[DEBUG] Could not get IMDb ID for {title}: {e}", flush=True)
-                        sys.stdout.flush()
 
-                except Exception as e:
-                    print(f"[DEBUG] Error checking providers for movie {movie_id}: {e}", flush=True)
-                    sys.stdout.flush()
-                    continue
-
-        except requests.Timeout:
-            print(f"[ERROR] Page {page} TIMEOUT", flush=True)
-            sys.stdout.flush()
-            break
         except Exception as e:
-            print(f"[ERROR] Page {page} failed: {str(e)}", flush=True)
-            sys.stdout.flush()
+            print(f"[ERROR] Page {page} failed: {e}")
             break
 
     # Deduplicate
@@ -124,8 +75,7 @@ def fetch_and_cache_movies():
             unique_movies.append(movie)
 
     all_movies_cache = unique_movies
-    print(f"[CACHE] Fetched {len(all_movies_cache)} Malayalam OTT movies ✅", flush=True)
-    sys.stdout.flush()
+    print(f"[CACHE] Fetched {len(all_movies_cache)} Malayalam OTT movies ✅")
 
 
 def to_stremio_meta(movie):
@@ -179,6 +129,7 @@ def catalog():
         print(f"[ERROR] Catalog error: {e}")
         return jsonify({"metas": []})
 
+import threading
 
 @app.route("/refresh")
 def refresh():
@@ -190,13 +141,13 @@ def refresh():
             import traceback
             print(f"[REFRESH ERROR] {traceback.format_exc()}")
 
-    threading.Thread(target=do_refresh, daemon=True).start()
+    threading.Thread(target=do_refresh).start()
     return jsonify({"status": "refresh started in background"})
 
 
-# Start cache fetch in background thread
-threading.Thread(target=fetch_and_cache_movies, daemon=True).start()
-
+# Fetch on startup
+fetch_and_cache_movies()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=7000)
+    port = int(os.getenv('PORT', 7000))
+    app.run(host="0.0.0.0", port=port)
