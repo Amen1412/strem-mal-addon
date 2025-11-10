@@ -146,8 +146,76 @@ def refresh():
 
 
 # Start cache fetch in background thread (doesn't block app startup)
-def init_cache():
-    fetch_and_cache_movies()
+def fetch_and_cache_movies():
+    global all_movies_cache
+    print("[CACHE] Fetching Malayalam OTT movies...")
+    print(f"[DEBUG] TMDB_API_KEY = {TMDB_API_KEY}")
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    final_movies = []
+
+    for page in range(1, 1000):
+        print(f"[INFO] Checking page {page}")
+        params = {
+            "api_key": TMDB_API_KEY,
+            "with_original_language": "ml",
+            "sort_by": "release_date.desc",
+            "release_date.lte": today,
+            "region": "IN",
+            "page": page
+        }
+
+        try:
+            response = requests.get(f"{TMDB_BASE_URL}/discover/movie", params=params)
+            print(f"[DEBUG] Page {page} status: {response.status_code}")
+            print(f"[DEBUG] Page {page} response: {response.text[:500]}")  # First 500 chars
+            
+            results = response.json().get("results", [])
+            if not results:
+                print(f"[DEBUG] Page {page} returned no results, breaking")
+                break
+
+            for movie in results:
+                movie_id = movie.get("id")
+                title = movie.get("title")
+                if not movie_id or not title:
+                    continue
+
+                # Check OTT availability
+                providers_url = f"{TMDB_BASE_URL}/movie/{movie_id}/watch/providers"
+                prov_response = requests.get(providers_url, params={"api_key": TMDB_API_KEY})
+                prov_data = prov_response.json()
+
+                if "results" in prov_data and "IN" in prov_data["results"]:
+                    if "flatrate" in prov_data["results"]["IN"]:
+                        # Now get IMDb ID
+                        ext_url = f"{TMDB_BASE_URL}/movie/{movie_id}/external_ids"
+                        ext_response = requests.get(ext_url, params={"api_key": TMDB_API_KEY})
+                        ext_data = ext_response.json()
+                        imdb_id = ext_data.get("imdb_id")
+
+                        if imdb_id and imdb_id.startswith("tt"):
+                            movie["imdb_id"] = imdb_id
+                            final_movies.append(movie)
+
+        except Exception as e:
+            print(f"[ERROR] Page {page} failed: {e}")
+            import traceback
+            print(traceback.format_exc())
+            break
+
+    # Deduplicate
+    seen_ids = set()
+    unique_movies = []
+    for movie in final_movies:
+        imdb_id = movie.get("imdb_id")
+        if imdb_id and imdb_id not in seen_ids:
+            seen_ids.add(imdb_id)
+            unique_movies.append(movie)
+
+    all_movies_cache = unique_movies
+    print(f"[CACHE] Fetched {len(all_movies_cache)} Malayalam OTT movies ✅")
+
 
 threading.Thread(target=init_cache, daemon=True).start()
 
