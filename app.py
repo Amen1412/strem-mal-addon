@@ -18,12 +18,11 @@ all_movies_cache = []
 def fetch_and_cache_movies():
     global all_movies_cache
     print("[CACHE] Fetching Malayalam OTT movies...")
-    print(f"[DEBUG] TMDB_API_KEY = {TMDB_API_KEY}")
 
     today = datetime.now().strftime("%Y-%m-%d")
     final_movies = []
 
-    for page in range(1, 1000):
+    for page in range(1, 301):
         print(f"[INFO] Checking page {page}")
         params = {
             "api_key": TMDB_API_KEY,
@@ -36,12 +35,8 @@ def fetch_and_cache_movies():
 
         try:
             response = requests.get(f"{TMDB_BASE_URL}/discover/movie", params=params)
-            print(f"[DEBUG] Page {page} status: {response.status_code}")
-            print(f"[DEBUG] Page {page} response: {response.text[:500]}")
-            
             results = response.json().get("results", [])
             if not results:
-                print(f"[DEBUG] Page {page} returned no results, breaking")
                 break
 
             for movie in results:
@@ -69,8 +64,6 @@ def fetch_and_cache_movies():
 
         except Exception as e:
             print(f"[ERROR] Page {page} failed: {e}")
-            import traceback
-            print(traceback.format_exc())
             break
 
     # Deduplicate
@@ -148,11 +141,11 @@ def refresh():
             import traceback
             print(f"[REFRESH ERROR] {traceback.format_exc()}")
 
-    threading.Thread(target=do_refresh).start()
+    threading.Thread(target=do_refresh, daemon=True).start()
     return jsonify({"status": "refresh started in background"})
 
 
-# Start cache fetch in background thread (doesn't block app startup)
+# Start cache fetch in background thread
 threading.Thread(target=fetch_and_cache_movies, daemon=True).start()
 
 
