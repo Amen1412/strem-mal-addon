@@ -4,6 +4,7 @@ import requests
 from datetime import datetime
 import os
 import threading
+import sys
 
 app = Flask(__name__)
 CORS(app)
@@ -17,13 +18,16 @@ all_movies_cache = []
 
 def fetch_and_cache_movies():
     global all_movies_cache
-    print("[CACHE] Fetching Malayalam OTT movies...")
+    print("[CACHE] Fetching Malayalam OTT movies...", flush=True)
+    sys.stdout.flush()
 
     today = datetime.now().strftime("%Y-%m-%d")
     final_movies = []
 
     for page in range(1, 301):
-        print(f"[INFO] Checking page {page}")
+        print(f"[INFO] Checking page {page}", flush=True)
+        sys.stdout.flush()
+        
         params = {
             "api_key": TMDB_API_KEY,
             "with_original_language": "ml",
@@ -34,9 +38,22 @@ def fetch_and_cache_movies():
         }
 
         try:
-            response = requests.get(f"{TMDB_BASE_URL}/discover/movie", params=params)
+            print(f"[DEBUG] Making request for page {page}...", flush=True)
+            sys.stdout.flush()
+            
+            response = requests.get(f"{TMDB_BASE_URL}/discover/movie", params=params, timeout=15)
+            
+            print(f"[DEBUG] Response status: {response.status_code}", flush=True)
+            sys.stdout.flush()
+            
             results = response.json().get("results", [])
+            
+            print(f"[DEBUG] Page {page} got {len(results)} results", flush=True)
+            sys.stdout.flush()
+            
             if not results:
+                print(f"[DEBUG] No results on page {page}, breaking", flush=True)
+                sys.stdout.flush()
                 break
 
             for movie in results:
@@ -47,14 +64,14 @@ def fetch_and_cache_movies():
 
                 # Check OTT availability
                 providers_url = f"{TMDB_BASE_URL}/movie/{movie_id}/watch/providers"
-                prov_response = requests.get(providers_url, params={"api_key": TMDB_API_KEY})
+                prov_response = requests.get(providers_url, params={"api_key": TMDB_API_KEY}, timeout=10)
                 prov_data = prov_response.json()
 
                 if "results" in prov_data and "IN" in prov_data["results"]:
                     if "flatrate" in prov_data["results"]["IN"]:
                         # Now get IMDb ID
                         ext_url = f"{TMDB_BASE_URL}/movie/{movie_id}/external_ids"
-                        ext_response = requests.get(ext_url, params={"api_key": TMDB_API_KEY})
+                        ext_response = requests.get(ext_url, params={"api_key": TMDB_API_KEY}, timeout=10)
                         ext_data = ext_response.json()
                         imdb_id = ext_data.get("imdb_id")
 
@@ -62,8 +79,13 @@ def fetch_and_cache_movies():
                             movie["imdb_id"] = imdb_id
                             final_movies.append(movie)
 
+        except requests.Timeout:
+            print(f"[ERROR] Page {page} TIMEOUT", flush=True)
+            sys.stdout.flush()
+            break
         except Exception as e:
-            print(f"[ERROR] Page {page} failed: {e}")
+            print(f"[ERROR] Page {page} failed: {str(e)}", flush=True)
+            sys.stdout.flush()
             break
 
     # Deduplicate
@@ -76,7 +98,8 @@ def fetch_and_cache_movies():
             unique_movies.append(movie)
 
     all_movies_cache = unique_movies
-    print(f"[CACHE] Fetched {len(all_movies_cache)} Malayalam OTT movies ✅")
+    print(f"[CACHE] Fetched {len(all_movies_cache)} Malayalam OTT movies ✅", flush=True)
+    sys.stdout.flush()
 
 
 def to_stremio_meta(movie):
