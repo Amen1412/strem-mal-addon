@@ -62,14 +62,30 @@ def fetch_and_cache_movies():
                 if not movie_id or not title:
                     continue
 
-                # Check OTT availability
-                providers_url = f"{TMDB_BASE_URL}/movie/{movie_id}/watch/providers"
-                prov_response = requests.get(providers_url, params={"api_key": TMDB_API_KEY}, timeout=10)
-                prov_data = prov_response.json()
+                # Check OTT availability in India
+                try:
+                    providers_url = f"{TMDB_BASE_URL}/movie/{movie_id}/watch/providers"
+                    prov_response = requests.get(providers_url, params={"api_key": TMDB_API_KEY}, timeout=10)
+                    prov_data = prov_response.json()
 
-                if "results" in prov_data and "IN" in prov_data["results"]:
-                    if "flatrate" in prov_data["results"]["IN"]:
-                        # Now get IMDb ID
+                    # Check if movie has providers in India
+                    if "results" not in prov_data or "IN" not in prov_data["results"]:
+                        print(f"[DEBUG] {title} has no providers in India, skipping", flush=True)
+                        sys.stdout.flush()
+                        continue
+
+                    india_providers = prov_data["results"]["IN"]
+                    
+                    # Check if ANY type of provider exists (flatrate, buy, rent)
+                    has_provider = "flatrate" in india_providers or "buy" in india_providers or "rent" in india_providers
+                    
+                    if not has_provider:
+                        print(f"[DEBUG] {title} has no OTT providers in India, skipping", flush=True)
+                        sys.stdout.flush()
+                        continue
+
+                    # Get IMDb ID
+                    try:
                         ext_url = f"{TMDB_BASE_URL}/movie/{movie_id}/external_ids"
                         ext_response = requests.get(ext_url, params={"api_key": TMDB_API_KEY}, timeout=10)
                         ext_data = ext_response.json()
@@ -78,6 +94,16 @@ def fetch_and_cache_movies():
                         if imdb_id and imdb_id.startswith("tt"):
                             movie["imdb_id"] = imdb_id
                             final_movies.append(movie)
+                            print(f"[DEBUG] Added: {title} ({imdb_id}) - Providers: {list(india_providers.keys())}", flush=True)
+                            sys.stdout.flush()
+                    except Exception as e:
+                        print(f"[DEBUG] Could not get IMDb ID for {title}: {e}", flush=True)
+                        sys.stdout.flush()
+
+                except Exception as e:
+                    print(f"[DEBUG] Error checking providers for movie {movie_id}: {e}", flush=True)
+                    sys.stdout.flush()
+                    continue
 
         except requests.Timeout:
             print(f"[ERROR] Page {page} TIMEOUT", flush=True)
